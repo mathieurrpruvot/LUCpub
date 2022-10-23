@@ -1,0 +1,876 @@
+---
+title: "oSCR analysis"
+author: "Mathieu Pruvot"
+date: "4/24/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librairies}
+library(tidyverse)
+library(oSCR)
+library(gt)
+library(gtsummary)
+library(ggplot2)
+library(ggthemes)
+library(flextable)
+```
+
+# Upload original data
+## trap data
+
+Load three versions of the trap layout:
+- traplayour_tot2 only contains basic trap layout info
+- traplayout_tot3 contains basic+veg transect
+- traplayout_tot4 contains basic+veg transect+veg assessment
+
+```{r load trap data}
+load("traplayout_tot2.Rdata")
+load("traplayout_tot3.Rdata")
+load("traplayout_tot4.Rdata")
+
+
+```
+
+
+
+
+## Upload capture data
+
+```{r load capt data}
+load("~/Work/WCS/LACANET/Land-use study/Analysis/Analysis sept 2019/captanim22.Rdata")
+head(captanim22)
+colnames(captanim22)
+captanim22$Sex <- factor(captanim22$Sex)
+
+```
+remove the -occasion for mortality events, but save a version in OccasionD
+```{r}
+captanim22$OccasionD <-captanim22$Occasion
+captanim22$Occasion <- abs(captanim22$Occasion)
+```
+
+
+
+Re-order variables of encounter data file 
+```{r}
+captanim<-captanim22[,c(1,2,3,4,12,5:11,13:42)]
+captanim$Sex <- (captanim$Sex=="Female")*1
+
+```
+
+
+Clean up traplayout file
+```{r}
+head(traplayout_tot4)
+traplayout_tot4_oscr <- traplayout_tot4 %>% separate(usage,c("1","2","3","4","5","6","7","8"),sep=1:7,convert = T)
+
+traplayout_tot4_oscr$Site.x <- str_remove(traplayout_tot4_oscr$Site.x,"[/]")
+traplayout_tot4_oscr$sep <- "/"
+colnames(traplayout_tot4_oscr)
+traplayout_tot4_oscr <- traplayout_tot4_oscr[,c(1:11,99,12:98)]
+head(traplayout_tot4_oscr)
+traplayout_tot4_oscr$session<-substr(traplayout_tot4_oscr$TrapID.x,1,5)
+colnames(traplayout_tot4_oscr)[4:11] <- paste0("O.",colnames(traplayout_tot4_oscr)[4:11])
+
+```
+Decriptive statistics on captures
+```{r}
+
+captnigth <- sum(traplayout_tot4_oscr[,4:11])
+totacapt <- nrow(captanim)
+uniqueid <- length(unique(captanim$Id))
+recapevents <- totacapt-uniqueid
+totacapt
+uniqueid
+recapevents
+```
+Total of 20214 trap-night after excluding trap mal-function.
+
+```{r}
+captanim %>% 
+  group_by(Id) %>% 
+  summarize(n=n()) %>% 
+  summarize(recap=sum(n>1), norecap=sum(n==1), tot=n(), recaprate=recap/tot)
+```
+capture rate
+```{r}
+captrate <- totacapt/captnigth 
+newcaptrate <- uniqueid/captnigth
+recaptrate <- recapevents/captnigth
+captrate
+newcaptrate
+recaptrate
+```
+
+```{r}
+uniqueanimaldata <- captanim %>% 
+  group_by(Id) %>% 
+  slice(1)
+
+levels(uniqueanimaldata$species) <- list('Bandicota savilei'="Bandicotasavilei",'Berylmys berdmorei'="Berylmysberdmorei", 'Berylmys bowersi'="Berylmysbowersi",'Chiropodomys gliroides'="Chiropodomysgliroides",'Leopoldamys sabanus'="Leopoldamyssabanus",'Maxomys surifer'="Maxomyssurifer", 'Mus caroli'="Muscaroli",'Mus cervicolor'="Muscervicolor",'Niviventer fulvescens'="Niviventerfulvescens",'Rattus sp. R3'="RattusspR3",'Rattus andamanensis'="Rattusandamanensis",'Rattus exulans'="Rattusexulans",'Tupaia belangeri'="Tupaiabelangeri",'Vandeleuria oleracea'="Vandeleuriaoleracea")
+
+uniqueanimaldata$species <- as.character(uniqueanimaldata$species)
+
+uniqueanimaldata %>% 
+  group_by(species) %>% 
+  summarize(tot=n(), prop=tot/965) %>% 
+  arrange(-prop)
+
+tbl1 <- sort(table(uniqueanimaldata$species),decreasing = T)
+tbl2 <- prop.table(tbl1)
+cbind(Freq=tbl1,Proportion=tbl2,Cumul=cumsum(tbl2))
+```
+
+Table 
+```{r}
+
+
+df1 <- uniqueanimaldata %>% 
+  select(Season.x,Zone.x,species) 
+df1 <- df1[,2:4]
+
+tbr <- df1%>% 
+  filter(Season.x=="r") %>% 
+ tbl_summary( by=Zone.x, include=c(species),sort=list(everything() ~ "frequency"),statistic = list(species ~ "{n}") ) %>% 
+  add_overall(
+  col_label = "**Total Rainy**",
+  statistic = ~ "{n} ({p}%)",
+  last = T
+)%>% 
+   modify_header(label ~ "**Species**",
+                 stat_1 ~ "**Forest**, N = 68",
+                 stat_2 ~ "**Disturbed**, N = 136",
+                  stat_3 = "**Cleared**, N = 387") %>% 
+  remove_row_type(
+  variables = species,
+  type = c("header")
+) %>% 
+  italicize_levels()
+
+
+tbd <- df1%>% 
+  filter(Season.x=="d") %>% 
+ tbl_summary( by=Zone.x, include=c(species),sort=list(everything() ~ "frequency"),statistic = list(species ~ "{n}"))%>%   add_overall(
+  col_label = "**Total Dry**",
+  statistic = ~ "{n} ({p}%)",
+  last = T,
+) %>% 
+   modify_header(label ~ "**Species**",
+                 stat_1 ~ "**Forest**, N = 91",
+                 stat_2 ~ "**Disturbed**, N = 125",
+                  stat_3 = "**Cleared**, N = 158") %>% 
+  remove_row_type(
+  variables = species,
+  type = c("header")
+)%>% 
+  italicize_levels()
+
+tbtot <- df1%>% 
+ tbl_summary(  include=c(species),sort=list(everything() ~ "frequency")) %>% 
+  remove_row_type(
+  variables = species,
+  type = c("header")
+)%>% 
+   modify_header(label ~ "**Species**")%>% 
+  italicize_levels()
+
+theme_gtsummary_compact()
+tbl_merge(
+  list(tbtot,tbr, tbd),
+  tab_spanner = c("**Total**","**Rainy Season**", "**Dry Season**")
+) %>%  as_flex_table() %>% 
+  save_as_docx(path="C:\\Users\\mpruvot\\Desktop\\R Projects\\LUCms\\table1.docx")
+
+```
+
+# Data preparation for oSCR analysis on all-rodent data
+
+
+Prepare tdf
+```{r}
+colnames(traplayout_tot4_oscr)[13:100] <- gsub("\\.","",colnames(traplayout_tot4_oscr)[13:100])
+covnames <- colnames(traplayout_tot4_oscr)[c(14,16:61,70,71,74,76,77,79:81,83,85,86,87,92,97,100)]
+tdflist<-split(traplayout_tot4_oscr,traplayout_tot4_oscr$session)
+tdflist <- tdflist[names(tdflist) != "S7dZ1"]
+```
+
+
+- remove site S7dZ1 from previously defined objectives in rodent.data to add variables to trapCov
+```{r}
+oscrsite <- paste0("site",site[-37])
+oscrseason <- rep(c("d","r"),times=9,each=3)[-37]
+oscrzone <- paste0("zone",zone[-37])
+
+```
+Add site, season and zone to tdf so it can be used as trap covariate for modeling Po/Go
+```{r}
+
+for(i in 1:53){
+
+  tdflist[[i]]$site <- factor(oscrsite[i],levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9"))
+    tdflist[[i]]$season <- factor(oscrseason[i],levels=c("d","r"))
+      tdflist[[i]]$zone <- factor(oscrzone[i],levels=c("zone1","zone2","zone3"))
+}
+
+covnames <- c("zone",covnames)
+```
+
+Add day and day2
+```{r}
+for(i in 1:53){
+
+    tdflist[[i]]$day.1 <-0
+      tdflist[[i]]$day.2 <-1
+        tdflist[[i]]$day.3 <-2
+          tdflist[[i]]$day.4 <-3
+            tdflist[[i]]$day.5 <-4
+              tdflist[[i]]$day.6 <-5
+                tdflist[[i]]$day.7 <-6
+                  tdflist[[i]]$day.8 <-7
+
+    tdflist[[i]]$day2.1 <-0
+      tdflist[[i]]$day2.2 <-1
+        tdflist[[i]]$day2.3 <-4
+          tdflist[[i]]$day2.4 <-9
+            tdflist[[i]]$day2.5 <-16
+              tdflist[[i]]$day2.6 <-25
+                tdflist[[i]]$day2.7 <-36
+                  tdflist[[i]]$day2.8 <-49
+
+
+}
+
+covnames <- c("day","day2", covnames)
+```
+
+
+Create the scrFrame
+```{r}
+msdata <- data2oscr(edf = captanim,
+tdf = tdflist,
+sess.col = which(colnames(captanim) %in% "session"),
+id.col = which(colnames(captanim) %in% "Id"),
+occ.col = which(colnames(captanim) %in% "Occasion"),
+trap.col = which(colnames(captanim) %in% "TrapID"),
+sex.col= which(colnames(captanim) %in% "Sex"),
+sex.nacode = "NA",
+K = rep(8,53),
+ntraps = rep(50,53),
+trapcov.names = covnames)
+
+
+rod.sf <- msdata$scrFrame
+
+
+rod.sf
+plot(rod.sf)
+
+```
+
+
+
+## prepare an addition to indcovs: add 'removed' variable 
+
+first create the remove variable in the captanim data
+```{r}
+captanim$removed <- (captanim$OccasionD<0)*abs(captanim$OccasionD)
+captanim$removed[captanim$removed==0]<-8
+```
+
+then convert captanim$removed to the indCovs format (code from Chris Sutherland on oSCR google group)
+```{r}
+for(i in 1:53){
+tmp <- captanim[captanim$session == names(tdflist)[i],]
+unique(tmp$Id)
+tmp$Id <- factor(tmp$Id)
+rmv <- tapply(tmp$removed,tmp$Id,mean)
+rod.sf$indCovs[[i]]$removed <- rmv
+}
+
+```
+
+
+```{r}
+rod.ss <- make.ssDF(scrFrame = rod.sf, 
+buffer = 3*23, # ~3*1/2*MMDM
+res = 5)
+plot.ssDF(rod.ss)
+plot(rod.ss,rod.sf)
+```
+Follow instruction from CHris Sutherland on adding state space covariates to model covariate effet on 
+- Density:
+```{r}
+for(i in 1:53){
+
+  rod.ss[[i]]$site <- factor(oscrsite[i],levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9"))
+    rod.ss[[i]]$season <- factor(oscrseason[i],levels=c("d","r"))
+      rod.ss[[i]]$zone <- factor(oscrzone[i],levels=c("zone1","zone2","zone3"))
+
+}
+
+```
+
+- Sigma
+```{r}
+rod.sf$sigCovs$site <- factor(oscrsite,levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9")) 
+rod.sf$sigCovs$season <- factor(oscrseason,levels=c("d","r"))
+rod.sf$sigCovs$zone <- factor(oscrzone,levels=c("zone1","zone2","zone3"))
+
+
+```
+
+
+Create a version of rod.sf wthout the sex variable
+```{r}
+rod.sf2 <- rod.sf
+rod.sf2$indCovs <- lapply(rod.sf2$indCovs, function(x) x[!(names(x) %in% c("sex"))])
+```
+
+Run the all-species models without sex and with multi-core (this was run a remote server)
+```{r}
+mods <- make.mods(density= c(~1,~zone,~season,~zone+season,~zone*season),
+                  detection = c(~1,~zone,~season,~zone+season,~zone*season),
+                  sigma = c(~1,~zone),
+)
+
+library(foreach)
+
+library(doParallel)
+
+
+
+cl <- makeCluster(25)    #make the cluster
+
+registerDoParallel(cl)  #register the cluster
+
+
+
+out2 <- foreach(i=1:50,.packages = "oSCR",.errorhandling="pass") %dopar% {
+  
+  
+  
+  m <- list(mods[i,1][[1]], # ith model
+            
+            mods[i,2][[1]],
+            
+            mods[i,3][[1]],
+            
+            mods[i,4][[1]]) 
+  
+  out <- oSCR.fit(m, rod.sf2,rod.ss)
+  
+  return(out)
+  
+}
+
+stopCluster(cl)
+convmod <- summary(out2)[,1]=="17"
+out2oscr <- fitList.oSCR(out2[convmod], rename=T)
+
+namod <- numeric()
+
+for (i in 1:length(out2oscr)){
+  if(anyNA(out2oscr[[i]]$outStats$std.er)){namod <- c(namod,i)}
+}
+out2oscr <- fitList.oSCR(out2oscr[-namod], rename=T)
+modsel <- modSel.oSCR(out2oscr)
+
+
+```
+
+Suppl table
+```{r}
+library(flextable)
+modsel$aic.tab %>% flextable() %>% colformat_double(digits = 3) 
+```
+
+pick the best all-rodent model with the lowest AIC
+```{r}
+topmod <- out2oscr$`D(~zone + season + zone:season) p(~zone + season) sig(~1) asu(~1)`
+```
+
+make a dataframe of values for predictions of all-rodent density
+```{r}
+p.pred.df <- data.frame(zone = factor(rep(c("zone1","zone2","zone3"),2)), #obs range
+                        season = factor(rep(c("d","r"),each=3)))
+library(oSCR)
+#now predict
+p.preds <- get.real(model = topmod, type = "det", newdata = p.pred.df)
+d.preds <- get.real(model = topmod, type = "dens", newdata = p.pred.df,d.factor = 1/25)
+s.preds <- get.real(model = topmod, type = "sig", newdata = p.pred.df)
+```
+
+Figure 3a
+```{r}
+ggplot(d.preds, aes(x=season, y=estimate, color = zone, group=zone)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
+                position = position_dodge(width=0.5)) +
+  geom_point(size=5, position = position_dodge(width=0.5)) +
+  theme_bw() + scale_color_fivethirtyeight(name="Zones",labels=c("Forest","Disturbed","Cleared")) +
+  xlab("Season") + ylab(expression("Density in animal /"~m^2))+
+  scale_x_discrete(labels=c("Dry", "Rainy"))
+
+```
+
+
+# prepare M surifer data oSCR analysis 
+
+
+```{r}
+captanim.MS <- captanim[captanim$species=="Maxomyssurifer",]
+MS.tdfname <- unique(paste0(captanim.MS$Site.x,captanim.MS$Season.x,captanim.MS$Zone.x))
+```
+
+
+```{r}
+tdflist.MS <- tdflist[names(tdflist) %in% MS.tdfname]
+
+
+oscrsite.MS <- c(rep("site1",4),rep("site2",3),rep("site3",3),rep("site4",4),rep("site5",4),rep("site6",3),rep("site7",2),rep("site8",4),rep("site9",4))
+oscrseason.MS <- c("d","d","r","r","d","d","r","d","r","r","d","d","r","r","d","d","r","r","d","d","r","r","r","d","d","r","r","d","d","r","r")
+oscrzone.MS <- str_replace(str_sub(names(tdflist.MS),4,5),"Z","zone")
+```
+
+
+Create the scrFrame
+```{r}
+msdata.MS <- data2oscr(edf = captanim.MS,
+tdf = tdflist.MS,
+sess.col = which(colnames(captanim.MS) %in% "session"),
+id.col = which(colnames(captanim.MS) %in% "Id"),
+occ.col = which(colnames(captanim.MS) %in% "Occasion"),
+trap.col = which(colnames(captanim.MS) %in% "TrapID"),
+sex.col= which(colnames(captanim.MS) %in% "Sex"),
+sex.nacode = "NA",
+K = rep(8,31),
+ntraps = rep(50,31),
+trapcov.names = covnames)
+
+
+rod.MS.sf <- msdata.MS$scrFrame
+
+
+rod.MS.sf
+plot(rod.MS.sf)
+
+```
+
+
+
+
+
+
+```{r}
+rod.MS.ss <- make.ssDF(scrFrame = rod.MS.sf, # the RBS MS scrFrame
+buffer = 3*23, # ~3*1/2*MMDM
+res = 5)
+plot.ssDF(rod.MS.ss)
+plot(rod.MS.ss,rod.MS.sf)
+```
+Follow instruction from CHris Sutherland on adding state space covariates to model covariate effet on 
+- Density:
+```{r}
+for(i in 1:31){
+
+  rod.MS.ss[[i]]$site <- factor(oscrsite.MS[i],levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9"))
+    rod.MS.ss[[i]]$season <- factor(oscrseason.MS[i],levels=c("d","r"))
+      rod.MS.ss[[i]]$zone <- factor(oscrzone.MS[i],levels=c("zone1","zone2","zone3"))
+
+}
+
+```
+
+- Sigma
+```{r}
+rod.MS.sf$sigCovs$site <- factor(oscrsite.MS,levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9")) 
+rod.MS.sf$sigCovs$season <- factor(oscrseason.MS,levels=c("d","r"))
+rod.MS.sf$sigCovs$zone <- factor(oscrzone.MS,levels=c("zone1","zone2","zone3"))
+
+
+```
+
+
+# Prepare Mus cervicolor data for oSCR analysis 
+
+```{r}
+captanim.MC <- captanim[captanim$species=="Muscervicolor",]
+MC.tdfname <- unique(paste0(captanim.MC$Site.x,captanim.MC$Season.x,captanim.MC$Zone.x))
+```
+
+
+```{r}
+tdflist.MC <- tdflist[names(tdflist) %in% MC.tdfname]
+
+
+oscrsite.MC <- str_replace(str_sub(names(tdflist.MC),1,2),"S","site")
+oscrseason.MC <- str_sub(names(tdflist.MC),3,3)
+oscrzone.MC <- str_replace(str_sub(names(tdflist.MC),4,5),"Z","zone")
+```
+
+
+Create the scrFrame
+```{r}
+msdata.MC <- data2oscr(edf = captanim.MC,
+tdf = tdflist.MC,
+sess.col = which(colnames(captanim.MC) %in% "session"),
+id.col = which(colnames(captanim.MC) %in% "Id"),
+occ.col = which(colnames(captanim.MC) %in% "Occasion"),
+trap.col = which(colnames(captanim.MC) %in% "TrapID"),
+sex.col= which(colnames(captanim.MC) %in% "Sex"),
+sex.nacode = "NA",
+K = rep(8,24),
+ntraps = rep(50,24),
+trapcov.names = covnames)
+
+
+rod.MC.sf <- msdata.MC$scrFrame
+
+
+rod.MC.sf
+plot(rod.MC.sf)
+
+```
+
+
+
+
+
+
+```{r}
+rod.MC.ss <- make.ssDF(scrFrame = rod.MC.sf, # the RBS MS scrFrame
+buffer = 3*15, # ~3*1/2*MMDM
+res = 5)
+plot.ssDF(rod.MC.ss)
+plot(rod.MC.ss,rod.MC.sf)
+```
+Follow instruction from CHris sutherland on adding state space covariates to model covariate effet on 
+- Density:
+```{r}
+for(i in 1:24){
+
+  rod.MC.ss[[i]]$site <- factor(oscrsite.MC[i],levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9"))
+    rod.MC.ss[[i]]$season <- factor(oscrseason.MC[i],levels=c("d","r"))
+      rod.MC.ss[[i]]$zone <- factor(oscrzone.MC[i],levels=c("zone1","zone2","zone3"))
+
+}
+
+```
+
+- Sigma
+```{r}
+rod.MC.sf$sigCovs$site <- factor(oscrsite.MC,levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9")) 
+rod.MC.sf$sigCovs$season <- factor(oscrseason.MC,levels=c("d","r"))
+rod.MC.sf$sigCovs$zone <- factor(oscrzone.MC,levels=c("zone1","zone2","zone3"))
+
+
+```
+
+# Prepare Rattus sp R3 data for oSCR analysis  
+
+```{r}
+captanim.RR <- captanim[captanim$species=="RattusspR3",]
+RR.tdfname <- unique(paste0(captanim.RR$Site.x,captanim.RR$Season.x,captanim.RR$Zone.x))
+```
+
+
+```{r}
+tdflist.RR <- tdflist[names(tdflist) %in% RR.tdfname]
+
+
+oscrsite.RR <- str_replace(str_sub(names(tdflist.RR),1,2),"S","site")
+oscrseason.RR <- str_sub(names(tdflist.RR),3,3)
+oscrzone.RR <- str_replace(str_sub(names(tdflist.RR),4,5),"Z","zone")
+
+
+```
+
+
+Create the scrFrame
+```{r}
+msdata.RR <- data2oscr(edf = captanim.RR,
+tdf = tdflist.RR,
+sess.col = which(colnames(captanim.RR) %in% "session"),
+id.col = which(colnames(captanim.RR) %in% "Id"),
+occ.col = which(colnames(captanim.RR) %in% "Occasion"),
+trap.col = which(colnames(captanim.RR) %in% "TrapID"),
+sex.col= which(colnames(captanim.RR) %in% "Sex"),
+sex.nacode = "NA",
+K = rep(8,37),
+ntraps = rep(50,37),
+trapcov.names = covnames)
+
+
+rod.RR.sf <- msdata.RR$scrFrame
+
+
+rod.RR.sf
+plot(rod.RR.sf)
+
+```
+
+
+
+
+
+
+```{r}
+rod.RR.ss <- make.ssDF(scrFrame = rod.RR.sf, # the RBS MS scrFrame
+buffer = 3*23, # ~3*1/2*MMDM
+res = 5)
+plot.ssDF(rod.RR.ss)
+plot(rod.RR.ss,rod.RR.sf)
+```
+Follow instruction from CHris sutherland on adding state space covariates to model covariate effet on 
+- Density:
+```{r}
+for(i in 1:37){
+
+  rod.RR.ss[[i]]$site <- factor(oscrsite.RR[i],levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9"))
+    rod.RR.ss[[i]]$season <- factor(oscrseason.RR[i],levels=c("d","r"))
+      rod.RR.ss[[i]]$zone <- factor(oscrzone.RR[i],levels=c("zone1","zone2","zone3"))
+
+}
+
+```
+
+- Sigma
+```{r}
+rod.RR.sf$sigCovs$site <- factor(oscrsite.RR,levels=c("site1","site2","site3","site4","site5","site6","site7","site8","site9")) 
+rod.RR.sf$sigCovs$season <- factor(oscrseason.RR,levels=c("d","r"))
+rod.RR.sf$sigCovs$zone <- factor(oscrzone.RR,levels=c("zone1","zone2","zone3"))
+
+
+```
+Create a version of rod.sf wthout the sex variable
+```{r}
+rod.MS.sf2 <- rod.MS.sf
+rod.MS.sf2$indCovs <- lapply(rod.MS.sf2$indCovs, function(x) x[!(names(x) %in% c("sex"))])
+
+rod.MC.sf2 <- rod.MC.sf
+rod.MC.sf2$indCovs <- lapply(rod.MC.sf2$indCovs, function(x) x[!(names(x) %in% c("sex"))])
+
+rod.RR.sf2 <- rod.RR.sf
+rod.RR.sf2$indCovs <- lapply(rod.RR.sf2$indCovs, function(x) x[!(names(x) %in% c("sex"))])
+```
+
+For each predominant species, run models without sex and with multi-core
+```{r}
+mods <- make.mods(density= c(~1,~zone,~season,~zone+season,~zone*season),
+                  detection = c(~1,~zone,~season,~zone+season,~zone*season),
+                  sigma = c(~1,~zone,~season),
+)
+
+library(foreach)
+
+library(doParallel)
+
+
+
+cl <- makeCluster(8)    #make the cluster
+
+registerDoParallel(cl)  #register the cluster
+
+
+
+out2.MS <- foreach(i=1:75,.packages = "oSCR",.errorhandling="pass") %dopar% {
+  
+  
+  
+  m <- list(mods[i,1][[1]], # ith model
+            
+            mods[i,2][[1]],
+            
+            mods[i,3][[1]],
+            
+            mods[i,4][[1]]) 
+  
+  
+  out <- oSCR.fit(m, rod.MS.sf2,rod.MS.ss)
+  
+  return(out)
+  
+}
+
+out2.MC <- foreach(i=1:75,.packages = "oSCR",.errorhandling="pass") %dopar% {
+  
+  
+  
+  m <- list(mods[i,1][[1]], # ith model
+            
+            mods[i,2][[1]],
+            
+            mods[i,3][[1]],
+            
+            mods[i,4][[1]]) 
+  
+  
+  out <- oSCR.fit(m, rod.MC.sf2,rod.MC.ss)
+  
+  return(out)
+  
+}
+
+out2.RR <- foreach(i=1:75,.packages = "oSCR",.errorhandling="pass") %dopar% {
+  
+  m <- list(mods[i,1][[1]], # ith model
+            
+            mods[i,2][[1]],
+            
+            mods[i,3][[1]],
+            
+            mods[i,4][[1]]) 
+  
+  out <- oSCR.fit(m, rod.RR.sf2,rod.RR.ss)
+  
+  return(out)
+  
+}
+
+stopCluster(cl)
+
+
+```
+
+# Species-specific prediction plots and tables
+
+Selection best model for Maxomys surifer
+```{r}
+library(oSCR)
+modsel.MS <- modSel.oSCR(out2oscr.MS)
+modsel.MS$aic.tab %>% flextable() %>% colformat_double(digits = 3) %>%  save_as_docx(path=file.choose())
+
+#pick the model with the lowest AIC
+topmod.MS <- out2oscr.MS$`D(~zone) p(~season) sig(~season) asu(~1)`
+```
+
+make a dataframe of values for predictions for Maxomys surifer
+```{r}
+
+p.pred.df <- data.frame(zone = factor(rep(c("zone1","zone2"),2),levels = c("zone1","zone2")), #obs range
+                        season = factor(rep(c("d","r"),each=2)))
+#now predict
+p.preds.MS <- get.real(model = topmod.MS, type = "det", newdata = p.pred.df, d.factor = 1/25)
+d.preds.MS <- get.real(model = topmod.MS, type = "dens", newdata = p.pred.df, d.factor = 1/25)
+s.preds.MS <- get.real(model = topmod.MS, type = "sig", newdata = p.pred.df, d.factor = 1/25)
+
+head(p.preds.MS)
+levels(d.preds.MS$zone) <- c("zone1","zone2","zone3")
+d.preds.MS <- d.preds.MS %>% add_row(zone = "zone3", season = "d",estimate=0) %>% add_row(zone = "zone3", season = "r",estimate=0,)
+```
+
+FIgure
+```{r}
+ggplot(d.preds.MS, aes(x=season, y=estimate, color = zone, group=zone)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
+                position = position_dodge(width=0.5)) +
+  geom_point(size=5, position = position_dodge(width=0.5)) +
+  theme_bw() + scale_color_fivethirtyeight(name="Zone",labels=c("Forest","Disturbed","Cleared")) +
+  xlab("Season") + ylab(expression("Density Maxomys surifer in animal / "~m^2))+
+  scale_x_discrete(labels=c("Dry", "Rainy"))
+
+
+
+
+
+```
+## Select best model Mus cervicolor
+```{r}
+library(oSCR)
+namod <- numeric()
+
+for (i in 1:length(out2oscr.MC)){
+  if(anyNA(out2oscr.MC[[i]]$outStats$std.er)){namod <- c(namod,i)}
+}
+out2oscr.MC <- fitList.oSCR(out2oscr.MC[-namod], rename=T)
+
+modsel.MC <- modSel.oSCR(out2oscr.MC)
+```
+
+Suppl table
+```{r}
+modsel.MC$aic.tab %>% flextable() %>% colformat_double(digits = 3) 
+
+
+```
+
+pick the model with the lowest AIC
+```{r}
+topmod.MC <- out2oscr.MC$`D(~zone + season + zone:season) p(~season) sig(~season) asu(~1)`
+```
+
+make a dataframe of values for DETECTION predictions
+```{r}
+
+p.pred.df <- data.frame(zone = factor(rep(c("zone2","zone3"),2),levels = c("zone2","zone3")), #obs range
+                        season = factor(rep(c("d","r"),each=2)))
+```
+
+now predict density of M cervicolor across zones and seasons
+```{r}
+
+p.preds.MC <- get.real(model = topmod.MC, type = "det", newdata = p.pred.df, d.factor = 1/25)
+d.preds.MC <- get.real(model = topmod.MC, type = "dens", newdata = p.pred.df, d.factor = 1/25)
+s.preds.MC <- get.real(model = topmod.MC, type = "sig", newdata = p.pred.df, d.factor = 1/25)
+
+head(p.preds.MC)
+levels(d.preds.MC$zone) <- c("zone2","zone3","zone1")
+d.preds.MC <- d.preds.MC %>% add_row(zone = "zone1", season = "d",estimate=0) %>% add_row(zone = "zone1", season = "r",estimate=0,)
+
+```
+
+Figure 
+```{r}
+ggplot(d.preds.MC, aes(x=season, y=estimate, color = zone, group=zone)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
+                position = position_dodge(width=0.5)) +
+  geom_point(size=5, position = position_dodge(width=0.5)) +
+  theme_bw() + scale_color_fivethirtyeight(name="Zone",labels=c("Forest","Disturbed","Cleared")) +
+  xlab("Season") + ylab(expression("Density Mus cervicolor in animal / "~m^2))+
+  scale_x_discrete(labels=c("Dry", "Rainy"))
+
+```
+Predctions and plots for Rattus sp R3
+```{r}
+modsel.RR <- modSel.oSCR(out2oscr.RR)
+```
+
+Suppl doc table
+```{r}
+modsel.RR$aic.tab %>% flextable() %>% colformat_double(digits = 3)
+```
+
+pick top model with  lowest AIC
+```{r}
+topmod.RR <- out2oscr.RR$`D(~zone) p(~zone) sig(~season) asu(~1)`
+```
+
+make a dataframe of values for DETECTION predictions
+```{r}
+
+p.pred.df <- data.frame(zone = factor(rep(c("zone1","zone2","zone3"),2)), #obs range
+                        season = factor(rep(c("d","r"),each=3)))
+library(oSCR)
+#now predict
+p.preds.RR <- get.real(model = topmod.RR, type = "det", newdata = p.pred.df)
+d.preds.RR <- get.real(model = topmod.RR, type = "dens", newdata = p.pred.df,d.factor = 1/25)
+s.preds.RR <- get.real(model = topmod.RR, type = "sig", newdata = p.pred.df)
+
+
+```
+
+Figure 
+```{r}
+ggplot(d.preds.RR, aes(x=season, y=estimate, color = zone, group=zone)) +
+  geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
+                position = position_dodge(width=0.5)) +
+  geom_point(size=5, position = position_dodge(width=0.5)) +
+  theme_bw() + scale_color_fivethirtyeight(name="Zone",labels=c("Forest","Disturbed","Cleared")) +
+  xlab("Season") + ylab(expression("Density Rattus sp. R3 in animal / "~m^2))+
+  scale_x_discrete(labels=c("Dry", "Rainy"))
+
+
+```

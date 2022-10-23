@@ -1,0 +1,482 @@
+---
+title: "Occupancy Script Rodent Cambodia"
+author: "Mathieu Pruvot"
+date: "11/23/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r librairies}
+
+library(AHMbook)
+library(tidyverse)
+library(reshape2)
+library(unmarked)
+library(jagsUI)
+library(vegan)
+library(ggpubr)
+library(ggplot2)
+library(ggthemes)
+```
+
+```{r load data}
+load("captanim12.Rdata")
+load("traplayout_tot2.Rdata")
+head(captanim12)
+```
+
+
+
+#Data preparation: convert capture data to occupancy data
+## create an empty dataframe based on traplayout_tot2 and usage to list all trap/occasions in long form
+
+```{r}
+occuframe<-traplayout_tot2
+occuframe$X1<-NA
+occuframe$X2<-NA
+occuframe$X3<-NA
+occuframe$X4<-NA
+occuframe$X5<-NA
+occuframe$X6<-NA
+occuframe$X7<-NA
+occuframe$X8<-NA
+
+t(as.data.frame(strsplit(as.character(occuframe$usage),"")))->occuframe[,c("X1","X2","X3","X4","X5","X6","X7","X8")]
+
+```
+
+
+
+Convert to long format
+```{r}
+meltoccuframe<-melt(occuframe, id.vars=c("TrapID","X","Y","usage","Site","season"  
+,"Zone","Trap","SiteSeason"),variable_name = "occasion")
+meltoccuframe<-meltoccuframe[order(meltoccuframe$season,meltoccuframe$Site,meltoccuframe$Zone,meltoccuframe$TrapID),]
+
+meltoccuframeused<-meltoccuframe[meltoccuframe$value==1,]
+
+```
+
+
+
+## replicate resulting dataframe by number of species
+
+```{r}
+nspe<-length(unique(captanim12$species))
+speoccup<-purrr::map_dfr(seq_len(nspe), ~meltoccuframeused)
+ntrapocc<-nrow(meltoccuframeused)
+spetemp<-rep(unique(captanim12$species),ntrapocc)
+spetemp<-spetemp[order(spetemp)]
+speoccup$species<-as.character(spetemp)
+
+```
+
+
+## create detection/non-detection and assign 0 to all
+
+```{r}
+speoccup$detection<-0
+
+```
+
+
+## select dataframe rows based on trapID/season/occasion/species of capttot and assign 1 to detect/no-detect
+```{r}
+head(captanim12)
+head(speoccup)
+
+```
+gsub X out of the speoccup occasion
+
+```{r}
+speoccup$variable<-gsub("X",replacement = "",x=speoccup$variable)
+
+```
+
+## transfer captanim12 data into speoccup df to document detections
+
+
+First create the varialbe
+```{r}
+
+captvarname <- colnames(captanim12)[c(2,6,11:40)]
+speoccup[captvarname] <- NA
+```
+
+Then, convert Occasion in captanim12 into absolute values (remove the - for mortality events)
+```{r}
+captanim12$Occasion <- abs(captanim12$Occasion)
+```
+
+
+then at each i, add the entire row to the list of variables in the bracket (the session serves as 1 for detection)
+```{r}
+for(i in 1:nrow(captanim12)){
+  speoccup[speoccup$season==captanim12[i,]$Season.x & speoccup$TrapID==captanim12[i,]$TrapID & speoccup$variable==as.character(captanim12[i,]$Occasion) & speoccup$species==as.character(captanim12[i,]$species),13:45]<-captanim12[i,c(1:2,6,11:40)]
+}
+```
+
+check that all Ids from captanim were transfered and that it generally looks good
+```{r}
+nrow(captanim12)-nrow(speoccup[speoccup$detection==1,]
+)
+captanim12[!captanim12$Id %in% speoccup$Id,]
+
+
+
+```
+OK!
+
+# Community occupancy
+
+```{r}
+spespread<-speoccup[,c(1,5:10,12:13)]
+spespread_tot <- spread(spespread,variable,detection)
+```
+
+create a sp_a_r and sp_a_d array of trap x occasion x species
+```{r}
+#ntrap <- 150*9*2 # number of sites
+#nrep <- 8 # max number of replicate surveys per trap
+#nspec <- length(unique(speoccup$species)) # 14 species occur in the #data
+#sp_a <- array(NA, dim = c(ntrap, nrep, nspec))
+#
+#(ordered.spec.name.list <- unique(speoccup$species)) # ID-order list
+```
+
+populate array with spespread data
+```{r}
+#for(i in 1:nspec){
+#  
+#  sp_a[,,i] <- as.matrix(spespread_tot[spespread_tot$species==ordered.s#pec.name.list[i],8:15],ntrap)
+#}
+#dimnames(sp_a) <- list(trapid=unique(spespread_tot$TrapID),occasion=as.#character(1:8), sps=ordered.spec.name.list)
+
+```
+
+create the obs.occ for comparing:
+```{r}
+#table(nsurveys <- apply(sp_a[,,1], 1, function(x) sum(!is.na(x))))
+#(NAsites <- which(nsurveys == 0) )
+#
+#tmp <- apply(sp_a, c(1,3), max, na.rm = TRUE)
+#sort(obs.occ <- apply(tmp, 2, sum, na.rm = TRUE))
+```
+
+
+## format data specifically for this analysis
+```{r}
+head(spespread_tot,n=20)
+```
+
+
+```{r}
+spespread_tot$sitezone<-paste(spespread_tot$SiteSeason,spespread_tot$Zone,sep="")
+```
+
+prepare array of site x trap x occasion x species 
+```{r}
+nsites<-3*9*2
+ntraps <- 50 # number of traps
+nreps <- 8 # max number of replicate surveys per trap
+nspec <- length(unique(speoccup$species)) # 14 species occur in the data
+ms_sp_a <- array(NA, dim = c(nsites, ntraps,nreps, nspec))
+```
+
+
+```{r}
+(ordered.spec.name.list <- unique(speoccup$species)) # ID-order list
+sitezone.list<-unique(spespread_tot$sitezone)
+
+
+for(k in 1:nspec){
+  for(i in 1:nsites)
+    ms_sp_a[i,,,k] <- as.matrix(spespread_tot[spespread_tot$species==ordered.spec.name.list[k] & spespread_tot$sitezone==sitezone.list[i],8:15],ntraps)
+}
+dimnames(ms_sp_a) <- list(trapid=sitezone.list,trap=paste("T",as.character(1:50),sep=""), occasion=as.character(1:8),sps=ordered.spec.name.list)
+
+```
+# before doing the occupancy model, simple diversity estimate
+now that we have the ms_sp_a array. we can easily collapse the array to the desired dimension. Let's start with the simplest approach possible, which is to produce a site occupancy matrix (site x species) to calculate simple diversity estimates
+```{r}
+divmat <- apply(ms_sp_a, c(1,4), sum, na.rm = T)
+divmat01 <- divmat
+divmat01[divmat01>0] <- 1
+
+
+diversity(divmat)
+zone <- rep(c("Z1","Z2","Z3"),18)
+seas <- rep(c("d","r"),each=27)
+shannon <- as.data.frame(diversity(divmat))
+colnames(shannon) <- "shannon"
+rich <- specnumber(divmat01)
+divdf <- shannon %>% 
+  mutate(richness=rich,
+         zone=zone,
+         seas=seas)
+
+
+
+
+# Visualize: Specify the comparisons you want
+my_comparisons <- list( c("Z1", "Z2"), c("Z2", "Z3"), c("Z1", "Z3") )
+ggboxplot(divdf, x = "zone", y = "richness",
+          color = "zone", palette = "jco")+ 
+  stat_compare_means(comparisons = my_comparisons)+
+  theme_bw() + scale_color_fivethirtyeight(name="Zone",labels=c("Forest","Disturbed","Cleared")) +# Add pairwise comparisons p-value
+  stat_compare_means(label.y = 7.5,label.x = 0.7)+ xlab("Zone")+ ylab("Species richness")+
+  scale_x_discrete(labels=c("Forest","Disturbed","Cleared"))+
+  theme(legend.position = "none")# Add global p-value
+
+
+```
+
+
+How many times was each trap surveyed (number occasions excluding trap failure)=denominator of binomial
+```{r}
+table(ms_nsurveys <- apply(ms_sp_a[,,,1], c(1,2), function(x) sum(!is.na(x))))
+```
+
+## Collapse 4D detection/nondetection data to 3D detection frequencies
+
+Collapse to detection frequency per site and per trap=numerator of binomial
+```{r}
+ms_sp_asum <- apply(ms_sp_a, c(1,2,4), sum, na.rm = T)
+```
+
+
+
+
+#Model7: random effects at site per species, random slope of zone and season per species
+occurrence species k at trap j of site s = intrercept[k] + re[k,s] x site[s] + rslopezone[k,j]x zone[k,j] + rslopeseas[k,j] x seas[k,j]
+## Bundle and summarize data set
+```{r}
+season<-rep(0:1,times=9,each=3)
+
+ZONE <- rep(1:3,times=18)
+
+site <- rep(1:9,each=6)
+```
+
+
+```{r}
+str( win.data <- list(ms_sp_asum = ms_sp_asum, M = nrow(ms_sp_asum), J = ms_nsurveys, zone=ZONE, season=season,site=site, nspec = dim(ms_sp_asum)[3],n.traps=50,nsite=9) )
+setwd("C:\\Users\\mpruvot\\Desktop\\R Projects\\LUCms")
+
+# Specify model in BUGS language
+sink("model7.txt")
+cat("
+model {
+
+# Priors for heterogeneity of species in community
+for(k in 1:nspec){          # Loop over species
+  lpsi[k] ~ dnorm(mu.lpsi,tau.lpsi)              #random species intercept
+  for(s in 1:nsite){
+    lpsi.site[k,s]~dnorm(0,tau.lpsi.site[k])
+  }
+  betalpsi1[k]~dnorm(mu.betalpsi1,tau.betalpsi1)
+  betalpsi2[k]~dnorm(mu.betalpsi2,tau.betalpsi2)
+  betalpsi.seas[k]~dnorm(mu.betalpsi.seas,tau.betalpsi.seas)
+  betaint.zoneseas.lpsi1[k]~dnorm(mu.betaint.zoneseas.lpsi1,tau.betaint.zoneseas.lpsi1)
+   betaint.zoneseas.lpsi2[k]~dnorm(mu.betaint.zoneseas.lpsi2,tau.betaint.zoneseas.lpsi2)
+  lp[k] ~ dnorm(mu.lp,tau.lp)
+}
+#hyperpriors for full community
+
+mu.lpsi ~ dnorm(0,0.1) # Community mean of occupancy (logit)
+tau.lpsi <- pow(sd.lpsi, -2)
+sd.lpsi ~ dunif(0,8) # Species heterogeneity in logit(psi)
+for(k in 1:nspec){
+tau.lpsi.site[k] <- pow(sd.lpsi.site[k], -2)
+sd.lpsi.site[k]~dunif(0,8)
+}
+mu.betalpsi1~dnorm(0,0.01)
+sd.betalpsi1~dunif(0,8)
+tau.betalpsi1 <- pow(sd.betalpsi1, -2)
+mu.betalpsi2~dnorm(0,0.01)
+sd.betalpsi2~dunif(0,8)
+tau.betalpsi2 <- pow(sd.betalpsi2, -2)
+mu.betalpsi.seas~dnorm(0,0.01)
+sd.betalpsi.seas~dunif(0,8)
+tau.betalpsi.seas <- pow(sd.betalpsi.seas, -2)
+mu.betaint.zoneseas.lpsi1~dnorm(0,0.01)
+tau.betaint.zoneseas.lpsi1<- pow(sd.betaint.zoneseas.lpsi1, -2)
+sd.betaint.zoneseas.lpsi1~dunif(0,8)
+mu.betaint.zoneseas.lpsi2~dnorm(0,0.01)
+tau.betaint.zoneseas.lpsi2<- pow(sd.betaint.zoneseas.lpsi2, -2)
+sd.betaint.zoneseas.lpsi2~dunif(0,8)
+mu.lp ~ dnorm(0,0.01) # Community mean of detection (logit)
+tau.lp <- pow(sd.lp, -2)
+sd.lp ~ dunif(0,8) # Species heterogeneity in logit(p)
+
+
+# Ecological model for latent occurrence z (process model)
+##model pecie k
+for(k in 1:nspec){          # Loop over species
+
+  ## Occurence in trap j of site i
+  for (i in 1:M) {         # Loop over M sites/zone/season
+     for(j in 1:n.traps){ logit(psi[i,j,k])<-lpsi[k]+lpsi.site[k,site[i]]+betalpsi1[k]*equals(zone[i],2)+betalpsi2[k]*equals(zone[i],3)+betalpsi.seas[k]*season[i] + betaint.zoneseas.lpsi1[k]*equals(zone[i],2)*season[i]+betaint.zoneseas.lpsi2[k]*equals(zone[i],3)*season[i]
+      
+      z[i,j,k] ~ dbern(psi[i,j,k])
+        
+  
+           
+        }
+   }
+}
+
+#observation model
+
+for(k in 1:nspec){          # Loop over species
+logit(p[k])<-lp[k]
+   for (i in 1:M) {         # Loop over sites
+        for(j in 1:n.traps){ #loop over traps
+            ms_sp_asum[i,j,k] ~ dbin(mup[i,j,k], J[i,j])
+            mup[i,j,k] <- z[i,j,k] * p[k]
+           
+        }
+   }
+}
+
+
+            
+
+# Derived quantities
+for(k in 1:nspec){          # Loop over species
+for (i in 1:M) { 
+temp[i,k] <- (sum(z[i,,k])>0)*1 #creates a temporary matrix of M*k with number of traps occupied
+   }   # Add up number of occurring species at each site
+}
+for(k in 1:nspec){          # Loop over species
+   Nocc.fs[k] <- sum(temp[,k]) # Add up number of occupied sites among the 27
+}
+for (i in 1:M) {            # Loop over sites
+   Nsite[i] <- sum(temp[i,])   # Add up number of occurring species at each site
+}
+
+}
+",fill = TRUE)
+sink()
+
+# Initial values
+ms_zst <- apply(ms_sp_a, c(1,2,4), max, na.rm=T) # Observed occurrence as inits for z
+ms_zst[is.na(ms_zst)] <- 1
+inits <- function() list(z = ms_zst,  lpsi = rnorm(n= nspec),lpsi.site =matrix(rnorm(n=9*nspec),ncol=9),betalpsi1=rnorm(n=nspec),betalpsi2=rnorm(n=nspec),betalpsi.seas=rnorm(n=nspec),betaint.zoneseas.lpsi1=rnorm(n=nspec),betaint.zoneseas.lpsi2=rnorm(n=nspec), lp = rnorm(n= nspec))
+
+# Parameters monitored
+params <- c("mu.lpsi","sd.lpsi","mu.betalpsi1","sd.betalpsi1","mu.betalpsi2","sd.betalpsi2","lpsi","lpsi.site","betalpsi1","betalpsi2","mu.lp","sd.lp","psi","mu.betalpsi.seas","sd.betalpsi.seas","betalpsi.seas","betaint.zoneseas.lpsi1","betaint.zoneseas.lpsi2","sd.betaint.zoneseas.lpsi1","sd.betaint.zoneseas.lpsi2", "p", "Nsite", "Nocc.fs","lp","z")
+
+params <- c("betalpsi1","betalpsi2","betalpsi.seas","betaint.zoneseas.lpsi1","betaint.zoneseas.lpsi2", "p", "Nsite", "Nocc.fs")
+
+# MCMC settings
+ni <- 300000   ;   nt <- 2   ;   nb <- 45000   ;   nc <- 3
+
+# Call JAGS from R (ART 2.1 min)
+out7 <- jags(win.data, inits, params, "model7.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb, parallel = TRUE,n.cores = 8)
+
+jagsUI::traceplot(out7)   
+
+print(out7, dig = 3)
+
+
+
+```
+
+
+
+```{r}
+rownames(out7$summary)
+N.pm <- out7$summary[85:138, 1]       # Posterior means of Nsite
+N.psd <- out7$summary[85:138, 2]      # ... posterior sd's of Nsite
+N.cri <- out7$summary[85:138, c(3,7)] # ... CRL's of Nsite
+  
+  # Plot estimates as a function of zone (this does not propagate the uncertainty around N.pm estimates)
+
+zone1 <- as.numeric(rep(1:3,times=18)==1)
+zone2 <- as.numeric(rep(1:3,times=18)==2)
+zone3 <- as.numeric(rep(1:3,times=18)==3)
+season <- rep(c(0,1),each=9*3)
+
+
+    pred.season <- c(0,0,0,1,1,1) 
+  pred.zone <-  c(1,2,3,1,2,3)
+  str(meta7.data <- list(zone2 = zone2, zone3=zone3, season=season, N = N.pm, psd = N.psd+0.1, pred.season=pred.season,pred.zone=pred.zone, n = length(N.pm),npred=length(pred.season))) ## the +0.1 was just to fix issues with psd values, but needs a more systemic solution
+  
+  setwd("C:\\Users\\mpruvot\\Desktop\\R Projects\\LUCms")
+
+  # Define model in BUGS language
+  sink("meta7.txt")
+  cat("
+model{
+
+# Priors
+for(v in 1:6){         # Priors for intercept and coefficients
+   beta[v] ~ dnorm(0, 0.0001)
+}
+tau.site <- pow(sd.site, -2)
+sd.site ~ dunif(0,10)
+
+# Likelihood
+for (i in 1:n){
+   N[i] ~ dnorm(muN[i], tau.psd[i]) # Measurement error model for estimated N
+   tau.psd[i] <- pow(psd[i], -2)    # 'Known' part of residual: meas. error
+   muN[i] <- beta[1] + beta[2] * zone2[i] + beta[3] * zone3[i] + beta[4]*season[i] + beta[5] * season[i] * zone2[i] + beta[6] * season[i] * zone3[i] +eps.site[i] # add another source of uncertainty
+   eps.site[i] ~ dnorm(0, tau.site) # this is the usual 'residual'
+}
+
+# Get predictions for plot
+
+for(i in 1:npred){
+   Npred[i] <- beta[1] + beta[2] * equals(pred.zone[i],2) + beta[3] * equals(pred.zone[i],3) + beta[4]*pred.season[i] + beta[5] * pred.season[i] * equals(pred.zone[i],2) + beta[6] * season[i] * equals(pred.zone[i],3)
+}
+} # end model
+",fill=TRUE)
+  sink()
+  
+  # Initial values, params monitored, and MCMC settings
+  inits <- function() list(beta = rnorm(6))
+  params <- c("beta", "sd.site", "Npred")
+  ni <- 10000   ;   nt <- 10   ;   nb <- 1000   ;   nc <- 3
+  
+  # Call JAGS and summarize posterior
+  outmeta7 <- jags(meta7.data, inits, params, "meta7.txt", n.chains = nc, n.thin = nt, n.iter = ni, n.burnin = nb,parallel = TRUE,n.cores = 8)
+  as.data.frame(outmeta7$summary) %>% rownames_to_column() %>% flextable() %>% colformat_double(digits = 3) %>%  save_as_docx(path=file.choose())
+  str(outmeta7$summary)
+```
+
+
+
+
+
+```{r}
+
+outgraph <-  as.data.frame(outmeta7$summary[8:13,])
+outgraph$zone <- c("Z1","Z2","Z3","Z1","Z2","Z3")
+outgraph$season <- c("d","d","d","r","r","r")
+colnames(outgraph)[c(3,7)] <- c("low","high")
+
+
+p.pred.df <- data.frame(Zone = factor(rep(c("zone1","zone2","zone3"),2)), #obs range
+                        Season = factor(rep(c("d","r"),each=3)))
+outgraph <- cbind(outgraph,p.pred.df)
+
+
+
+
+ggplot(outgraph, aes(x=season, y=mean, color = zone, group=zone)) +
+  geom_errorbar(aes(ymin=low,ymax=high), width=0, size=0.75, color=1,
+                position = position_dodge(width=0.5)) +
+  geom_point(size=5, position = position_dodge(width=0.5)) +
+  theme_bw() + scale_color_fivethirtyeight(name="Zone",labels=c("Forest","Disturbed","Cleared")) +
+  xlab("Season") + ylab("Predicted Species Richness")+                
+  scale_x_discrete(labels=c("Dry", "Rainy"))
+
+
+
+```
+
+
