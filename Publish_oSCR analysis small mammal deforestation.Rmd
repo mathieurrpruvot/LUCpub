@@ -125,7 +125,7 @@ tbl2 <- prop.table(tbl1)
 cbind(Freq=tbl1,Proportion=tbl2,Cumul=cumsum(tbl2))
 ```
 
-Table 
+Table 2
 ```{r}
 
 
@@ -273,7 +273,7 @@ plot(rod.sf)
 
 
 
-## prepare an addition to indcovs: add 'removed' variable 
+prepare an addition to indcovs: add 'removed' variable 
 
 first create the remove variable in the captanim data
 ```{r}
@@ -762,7 +762,7 @@ levels(d.preds.MS$zone) <- c("zone1","zone2","zone3")
 d.preds.MS <- d.preds.MS %>% add_row(zone = "zone3", season = "d",estimate=0) %>% add_row(zone = "zone3", season = "r",estimate=0,)
 ```
 
-FIgure
+Figure 3b
 ```{r}
 ggplot(d.preds.MS, aes(x=season, y=estimate, color = zone, group=zone)) +
   geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
@@ -822,7 +822,7 @@ d.preds.MC <- d.preds.MC %>% add_row(zone = "zone1", season = "d",estimate=0) %>
 
 ```
 
-Figure 
+Figure 3d
 ```{r}
 ggplot(d.preds.MC, aes(x=season, y=estimate, color = zone, group=zone)) +
   geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
@@ -862,7 +862,7 @@ s.preds.RR <- get.real(model = topmod.RR, type = "sig", newdata = p.pred.df)
 
 ```
 
-Figure 
+Figure 3c
 ```{r}
 ggplot(d.preds.RR, aes(x=season, y=estimate, color = zone, group=zone)) +
   geom_errorbar(aes(ymin=lwr,ymax=upr), width=0, size=0.75, color=1,
