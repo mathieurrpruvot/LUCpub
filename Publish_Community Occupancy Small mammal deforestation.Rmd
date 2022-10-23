@@ -181,7 +181,10 @@ divdf <- shannon %>%
          seas=seas)
 
 
+```
 
+Figure 2
+```{r}
 
 # Visualize: Specify the comparisons you want
 my_comparisons <- list( c("Z1", "Z2"), c("Z2", "Z3"), c("Z1", "Z3") )
