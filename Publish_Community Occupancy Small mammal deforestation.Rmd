@@ -30,9 +30,9 @@ head(captanim12)
 
 
 
-#Data preparation: convert capture data to occupancy data
-## create an empty dataframe based on traplayout_tot2 and usage to list all trap/occasions in long form
+# Data preparation: convert capture data to occupancy data
 
+Create an empty dataframe based on traplayout_tot2 and usage to list all trap/occasions in long form
 ```{r}
 occuframe<-traplayout_tot2
 occuframe$X1<-NA
@@ -48,8 +48,6 @@ t(as.data.frame(strsplit(as.character(occuframe$usage),"")))->occuframe[,c("X1",
 
 ```
 
-
-
 Convert to long format
 ```{r}
 meltoccuframe<-melt(occuframe, id.vars=c("TrapID","X","Y","usage","Site","season"  
@@ -60,9 +58,7 @@ meltoccuframeused<-meltoccuframe[meltoccuframe$value==1,]
 
 ```
 
-
-
-## replicate resulting dataframe by number of species
+replicate resulting dataframe by number of species
 
 ```{r}
 nspe<-length(unique(captanim12$species))
@@ -74,8 +70,7 @@ speoccup$species<-as.character(spetemp)
 
 ```
 
-
-## create detection/non-detection and assign 0 to all
+create detection/non-detection and assign 0 to all
 
 ```{r}
 speoccup$detection<-0
@@ -83,12 +78,7 @@ speoccup$detection<-0
 ```
 
 
-## select dataframe rows based on trapID/season/occasion/species of capttot and assign 1 to detect/no-detect
-```{r}
-head(captanim12)
-head(speoccup)
 
-```
 gsub X out of the speoccup occasion
 
 ```{r}
@@ -137,37 +127,9 @@ spespread<-speoccup[,c(1,5:10,12:13)]
 spespread_tot <- spread(spespread,variable,detection)
 ```
 
-create a sp_a_r and sp_a_d array of trap x occasion x species
-```{r}
-#ntrap <- 150*9*2 # number of sites
-#nrep <- 8 # max number of replicate surveys per trap
-#nspec <- length(unique(speoccup$species)) # 14 species occur in the #data
-#sp_a <- array(NA, dim = c(ntrap, nrep, nspec))
-#
-#(ordered.spec.name.list <- unique(speoccup$species)) # ID-order list
-```
-
-populate array with spespread data
-```{r}
-#for(i in 1:nspec){
-#  
-#  sp_a[,,i] <- as.matrix(spespread_tot[spespread_tot$species==ordered.s#pec.name.list[i],8:15],ntrap)
-#}
-#dimnames(sp_a) <- list(trapid=unique(spespread_tot$TrapID),occasion=as.#character(1:8), sps=ordered.spec.name.list)
-
-```
-
-create the obs.occ for comparing:
-```{r}
-#table(nsurveys <- apply(sp_a[,,1], 1, function(x) sum(!is.na(x))))
-#(NAsites <- which(nsurveys == 0) )
-#
-#tmp <- apply(sp_a, c(1,3), max, na.rm = TRUE)
-#sort(obs.occ <- apply(tmp, 2, sum, na.rm = TRUE))
-```
 
 
-## format data specifically for this analysis
+## format data for community analysis
 ```{r}
 head(spespread_tot,n=20)
 ```
@@ -240,8 +202,7 @@ How many times was each trap surveyed (number occasions excluding trap failure)=
 table(ms_nsurveys <- apply(ms_sp_a[,,,1], c(1,2), function(x) sum(!is.na(x))))
 ```
 
-## Collapse 4D detection/nondetection data to 3D detection frequencies
-
+Collapse 4D detection/nondetection data to 3D detection frequencies
 Collapse to detection frequency per site and per trap=numerator of binomial
 ```{r}
 ms_sp_asum <- apply(ms_sp_a, c(1,2,4), sum, na.rm = T)
@@ -250,7 +211,7 @@ ms_sp_asum <- apply(ms_sp_a, c(1,2,4), sum, na.rm = T)
 
 
 
-#Model7: random effects at site per species, random slope of zone and season per species
+# Model7: random effects at site per species, random slope of zone and season per species
 occurrence species k at trap j of site s = intrercept[k] + re[k,s] x site[s] + rslopezone[k,j]x zone[k,j] + rslopeseas[k,j] x seas[k,j]
 ## Bundle and summarize data set
 ```{r}
@@ -451,7 +412,7 @@ for(i in 1:npred){
 
 
 
-
+# Figure 4
 ```{r}
 
 outgraph <-  as.data.frame(outmeta7$summary[8:13,])
