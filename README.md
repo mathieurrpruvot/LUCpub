@@ -1,4 +1,4 @@
-# Small mammal species at the edge of land conversion – Mixing, amplification, and a story of pathogen emergence
+# Small mammals at the edge of deforestation in Cambodia: transient community dynamics and potential pathways to pathogen emergence 
 
 
 Mathieu Pruvot1,2, Sokha Chea3, Vibol Hul4, Samat In3, Vuthy Buor3, Jill-Lea Ramassamy4, Caroline Fillieux3, Seng Sek5, Ratha Sor6, Sela Ros3, Sithun Nuon3, Sovannary San3, Yaren Ty3, Marany Chao3, Sreyem Sours3, Sreyleap Torng3, Unthyda Choeurn3, Udam Hun3, Sophorn Ton3, Samnang Y3, Sonara Phon3, Lina Kuy3, Amanda Fine1, Philippe Dussart4, Veasna Duong4, Paul F. Horwood4,7, Sarah H. Olson1
